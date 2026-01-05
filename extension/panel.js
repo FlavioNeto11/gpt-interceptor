@@ -74,6 +74,7 @@ sendBtn.addEventListener('click', async () => {
   }
 
   sendBtn.disabled = true;
+  getBtn.disabled = true;
   statusDiv.textContent = '📨 Enviando para ChatGPT...';
   statusDiv.classList.remove('error');
   responseSection.style.display = 'none';
@@ -84,54 +85,69 @@ sendBtn.addEventListener('click', async () => {
     content: message,
     timestamp: new Date().toISOString()
   });
+  saveHistory();
 
   try {
-    // Envia para o background que gerencia tudo
-    chrome.runtime.sendMessage({
-      type: 'SEND_MESSAGE_TO_GPT',
-      message: message
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        statusDiv.textContent = '❌ ' + chrome.runtime.lastError.message;
-        statusDiv.classList.add('error');
-        sendBtn.disabled = false;
-        return;
-      }
+    // Envia para o background
+    const sendResponse = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({
+        type: 'SEND_MESSAGE_TO_GPT',
+        message: message
+      }, (response) => {
+        resolve(response);
+      });
+    });
 
-      if (response?.success) {
-        statusDiv.textContent = '✅ Resposta recebida do GPT!';
-        statusDiv.classList.remove('error');
-        statusDiv.classList.add('connected');
+    if (sendResponse?.success) {
+      statusDiv.textContent = '✅ Mensagem enviada! Aguardando resposta...';
+      statusDiv.classList.remove('error');
+      
+      // Aguarda um pouco e depois tenta obter a resposta
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Tenta obter resposta
+      const getResponse = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          type: 'GET_RESPONSE'
+        }, (response) => {
+          resolve(response);
+        });
+      });
+
+      if (getResponse?.success) {
+        responseSection.style.display = 'block';
+        responseDiv.classList.remove('empty');
+        responseDiv.textContent = getResponse.response;
 
         // Adiciona resposta ao histórico
         conversationHistory.push({
           role: 'assistant',
-          content: response.response,
+          content: getResponse.response,
           timestamp: new Date().toISOString()
         });
         saveHistory();
         updateHistoryDisplay();
 
         messageInput.value = '';
-        
-        // Exibe a resposta
-        responseSection.style.display = 'block';
-        responseDiv.classList.remove('empty');
-        responseDiv.textContent = response.response;
+        statusDiv.textContent = '✅ Resposta recebida!';
+        statusDiv.classList.remove('error');
+        statusDiv.classList.add('connected');
       } else {
-        statusDiv.textContent = `❌ Erro: ${response?.error || 'Desconhecido'}`;
-        statusDiv.classList.add('error');
+        statusDiv.textContent = '⏳ Resposta ainda não pronta. Clique "Obter Resposta" para tentar novamente.';
       }
-      
-      sendBtn.disabled = false;
-    });
-
+    } else {
+      statusDiv.textContent = `❌ Erro: ${sendResponse?.error || 'Desconhecido'}`;
+      statusDiv.classList.add('error');
+    }
+    
   } catch (error) {
     console.error('Erro:', error);
     statusDiv.textContent = '❌ Erro: ' + error.message;
     statusDiv.classList.add('error');
-    sendBtn.disabled = false;
   }
+  
+  sendBtn.disabled = false;
+  getBtn.disabled = false;
 });
 
 // Obtém resposta

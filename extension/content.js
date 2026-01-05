@@ -155,25 +155,23 @@ async function captureGPTResponse(timeout = 30000) {
 
 // Listener de mensagens da extensao
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('📨 Content Script recebeu:', request.type);
+  
   if (request.type === 'INJECT_MESSAGE') {
     console.log('📨 Recebido: INJECT_MESSAGE');
     const { message } = request;
     
+    // Responde imediatamente que recebeu
+    sendResponse({ success: true, received: true });
+    
+    // Processa em background
     sendMessageToGPT(message).then(success => {
       if (success) {
         console.log('⏳ Aguardando resposta...');
         captureGPTResponse(30000).then((result) => {
           console.log('✅ Resposta capturada');
-
-          if (!result.success) {
-            sendResponse(result);
-            return;
-          }
-
-          sendResponse({ success: true, response: result.response });
+          // A resposta será obtida por GET_GPT_RESPONSE
         });
-      } else {
-        sendResponse({ success: false, error: 'Falha ao enviar' });
       }
     });
     
@@ -183,6 +181,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_GPT_RESPONSE') {
     console.log('📨 Recebido: GET_GPT_RESPONSE');
     captureGPTResponse(15000).then(result => {
+      console.log('Enviando resultado:', result);
       sendResponse(result);
     });
     return true;

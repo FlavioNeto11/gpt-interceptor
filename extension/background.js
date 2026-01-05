@@ -61,52 +61,79 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('📨 Mensagem recebida no Background:', request.type);
   
   if (request.type === 'SEND_MESSAGE_TO_GPT') {
+    // Encontra a aba do ChatGPT e injeta o content script se necessário
     chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] }, (tabs) => {
-      if (tabs.length > 0) {
-        console.log('✅ Aba do ChatGPT encontrada, enviando mensagem...');
-        const chatGPTTabId = tabs[0].id;
-        offscreenTabId = chatGPTTabId;
-        
-        // Tenta injetar via content script primeiro
+      if (tabs.length === 0) {
+        console.error('❌ Aba do ChatGPT não encontrada');
+        sendResponse({ success: false, error: 'ChatGPT não está aberto em nenhuma aba' });
+        return;
+      }
+
+      const chatGPTTabId = tabs[0].id;
+      console.log('✅ Aba do ChatGPT encontrada:', chatGPTTabId);
+
+      // Primeiro, injeta o content script (será ignorado se já estiver injetado)
+      chrome.scripting.executeScript({
+        target: { tabId: chatGPTTabId },
+        files: ['content.js']
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('Content script já estava injetado ou erro:', chrome.runtime.lastError.message);
+        } else {
+          console.log('✅ Content script injetado');
+        }
+
+        // Agora envia a mensagem para o content script
         chrome.tabs.sendMessage(chatGPTTabId, {
           type: 'INJECT_MESSAGE',
           message: request.message
         }, (response) => {
           if (chrome.runtime.lastError) {
-            console.log('Content script falhou, tentando offscreen...');
-            sendResponse({ success: false, error: 'Precisa estar na aba do ChatGPT' });
+            console.error('Erro ao enviar para content script:', chrome.runtime.lastError);
+            sendResponse({ success: false, error: 'Erro: ' + chrome.runtime.lastError.message });
           } else {
-            console.log('✅ Resposta recebida:', response);
+            console.log('✅ Resposta do content script:', response);
             sendResponse(response);
           }
         });
-      } else {
-        console.error('❌ Aba do ChatGPT não encontrada');
-        sendResponse({ success: false, error: 'ChatGPT tab not found' });
-      }
+      });
     });
     return true;
   }
 
   if (request.type === 'GET_RESPONSE') {
     chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] }, (tabs) => {
-      if (tabs.length > 0) {
-        console.log('✅ Obtendo resposta do ChatGPT...');
-        chrome.tabs.sendMessage(tabs[0].id, {
+      if (tabs.length === 0) {
+        console.error('❌ Aba do ChatGPT não encontrada');
+        sendResponse({ success: false, error: 'ChatGPT não está aberto em nenhuma aba' });
+        return;
+      }
+
+      const chatGPTTabId = tabs[0].id;
+      console.log('✅ Aba do ChatGPT encontrada para GET_RESPONSE:', chatGPTTabId);
+
+      // Injeta content script se necessário
+      chrome.scripting.executeScript({
+        target: { tabId: chatGPTTabId },
+        files: ['content.js']
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('Content script status:', chrome.runtime.lastError.message);
+        }
+
+        // Envia mensagem para obter resposta
+        chrome.tabs.sendMessage(chatGPTTabId, {
           type: 'GET_GPT_RESPONSE'
         }, (response) => {
           if (chrome.runtime.lastError) {
             console.error('Erro ao obter resposta:', chrome.runtime.lastError);
-            sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            sendResponse({ success: false, error: 'Erro: ' + chrome.runtime.lastError.message });
           } else {
             console.log('✅ Resposta obtida:', response);
             sendResponse(response);
           }
         });
-      } else {
-        console.error('❌ Aba do ChatGPT não encontrada');
-        sendResponse({ success: false, error: 'ChatGPT tab not found' });
-      }
+      });
     });
     return true;
   }
