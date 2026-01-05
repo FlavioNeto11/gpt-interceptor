@@ -65,47 +65,12 @@ function openPanel() {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('📨 Background recebeu:', request.type);
   
-  // Recebe notificação de resposta capturada pelo offscreen
-  if (request.type === 'OFFSCREEN_CAPTURED_RESPONSE') {
-    console.log('✅ Resposta capturada pelo offscreen!');
-    cachedResponse = request.response;
-    responseTimestamp = request.timestamp;
-    
-    // Salva no storage
-    chrome.storage.local.set({
-      lastGPTResponse: request.response,
-      lastGPTResponseTime: request.timestamp
-    });
-    return;
-  }
-  
-  // Polling do DOM - offscreen pede pro background executar script
-  if (request.type === 'POLL_CHATGPT_DOM') {
-    if (chatGPTTabId) {
-      chrome.scripting.executeScript({
-        target: { tabId: chatGPTTabId },
-        func: () => {
-          let messages = document.querySelectorAll('[data-message-author-role="assistant"]');
-          if (messages.length === 0) {
-            messages = document.querySelectorAll('[role="article"]');
-          }
-          if (messages.length > 0) {
-            const lastMessage = messages[messages.length - 1];
-            return (lastMessage.innerText || lastMessage.textContent || '').trim();
-          }
-          return '';
-        }
-      }).then(results => {
-        if (results && results[0] && results[0].result) {
-          // Envia resposta de volta pro offscreen
-          chrome.runtime.sendMessage({
-            type: 'RESPONSE_FROM_DOM',
-            response: results[0].result
-          }).catch(err => console.log('Erro ao enviar pro offscreen:', err));
-        }
-      }).catch(err => console.log('Erro ao executar script:', err));
-    }
-    return;
+  // Recebe notificação do offscreen quando tem nova resposta
+  if (request.type === 'offscreen-has-response' && request.target === 'background') {
+    console.log('✅ Offscreen notificou nova resposta!');
+    cachedResponse = request.data.response;
+    responseTimestamp = request.data.timestamp;
+    return true;
   }
   
   // Recebe notificação de resposta capturada pelo content script
@@ -113,7 +78,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('✅ Resposta capturada pelo observer!');
     cachedResponse = request.response;
     responseTimestamp = request.timestamp;
-    // Não precisa sendResponse aqui, é apenas notificação
+    
+    // Envia pro offscreen armazenar também
+    setupOffscreenDocument().then(() => {
+      chrome.runtime.sendMessage({
+        type: 'store-response',
+        target: 'offscreen',
+        data: request.response
+      }).catch(err => console.log('Offscreen não disponível:', err));
+    });
     return;
   }
   
@@ -144,7 +117,10 @@ async function handleSendMessage(message, sendResponse) {
     console.log('🗑️ Storage limpo');
     
     // Limpa cache do offscreen
-    chrome.runtime.sendMessage({ type: 'CLEAR_CACHE' }).catch(err => 
+    chrome.runtime.sendMessage({ 
+      type: 'clear-response',
+      target: 'offscreen'
+    }).catch(err => 
       console.log('Offscreen não disponível:', err)
     );
     
@@ -159,12 +135,6 @@ async function handleSendMessage(message, sendResponse) {
 
     chatGPTTabId = tabs[0].id;
     console.log('✅ Aba ChatGPT encontrada:', chatGPTTabId);
-    
-    // Inicia monitoramento via offscreen
-    chrome.runtime.sendMessage({ 
-      type: 'START_MONITORING',
-      tabId: chatGPTTabId 
-    }).catch(err => console.log('Offscreen não disponível:', err));
 
     // Injeta o content script
     await chrome.scripting.executeScript({
@@ -235,6 +205,28 @@ async function handleGetResponse(sendResponse) {
       }
     } catch (storageErr) {
       console.log('Storage não disponível:', storageErr);
+    }
+    
+    // Terceiro fallback: tenta offscreen
+    try {
+      await setupOffscreenDocument();
+      const offscreenResponse = await chrome.runtime.sendMessage({
+        type: 'get-response',
+        target: 'offscreen'
+      });
+      
+      if (offscreenResponse && offscreenResponse.success) {
+        const now = Date.now();
+        if ((now - offscreenResponse.timestamp) < 60000) {
+          console.log('✅ Retornando resposta do offscreen');
+          cachedResponse = offscreenResponse.response;
+          responseTimestamp = offscreenResponse.timestamp;
+          sendResponse({ success: true, response: offscreenResponse.response, fromOffscreen: true });
+          return;
+        }
+      }
+    } catch (offscreenErr) {
+      console.log('Offscreen não disponível:', offscreenErr);
     }
     
     if (!chatGPTTabId) {

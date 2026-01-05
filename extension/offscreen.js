@@ -1,98 +1,65 @@
 // Offscreen Document - GPT Interceptor
-// Este documento roda em background e pode acessar APIs web completas
+// Roda em background e armazena dados persistentemente
 
 console.log('🌐 Offscreen document carregado');
 
 let lastCapturedResponse = '';
-let monitoringInterval = null;
-let chatGPTFrame = null;
+let responseTimestamp = 0;
 
-// Listener de mensagens do background
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('📨 Offscreen recebeu:', request.type);
-  
-  if (request.type === 'START_MONITORING') {
-    console.log('🔍 Iniciando monitoramento de ChatGPT');
-    startMonitoring(request.tabId);
-    sendResponse({ success: true });
-    return true;
-  }
-  
-  if (request.type === 'STOP_MONITORING') {
-    console.log('⏹️ Parando monitoramento');
-    stopMonitoring();
-    sendResponse({ success: true });
-    return true;
-  }
-  
-  if (request.type === 'GET_CACHED_RESPONSE') {
-    console.log('📤 Retornando resposta em cache');
-    sendResponse({ 
-      success: lastCapturedResponse.length > 10, 
-      response: lastCapturedResponse 
-    });
-    return true;
-  }
-  
-  if (request.type === 'CLEAR_CACHE') {
-    console.log('🗑️ Limpando cache do offscreen');
-    lastCapturedResponse = '';
-    sendResponse({ success: true });
-    return true;
-  }
-});
-
-// Inicia monitoramento usando fetch para ler o conteúdo da aba
-function startMonitoring(tabId) {
-  if (monitoringInterval) {
-    console.log('⚠️ Monitoramento já está ativo');
+// Listener de mensagens - filtra por target
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Só processa mensagens direcionadas a este offscreen
+  if (message.target !== 'offscreen') {
     return;
   }
   
-  console.log('✅ Monitoramento iniciado');
+  console.log('📨 Offscreen recebeu:', message.type);
   
-  // Polling a cada 2 segundos
-  monitoringInterval = setInterval(async () => {
-    try {
-      // Solicita ao background para executar script na aba do ChatGPT
-      chrome.runtime.sendMessage({
-        type: 'POLL_CHATGPT_DOM',
-        tabId: tabId
-      }).catch(err => {
-        console.log('Erro ao fazer poll:', err);
-      });
-    } catch (error) {
-      console.error('Erro no monitoramento:', error);
-    }
-  }, 2000);
-}
-
-function stopMonitoring() {
-  if (monitoringInterval) {
-    clearInterval(monitoringInterval);
-    monitoringInterval = null;
-    console.log('✅ Monitoramento parado');
-  }
-}
-
-// Recebe resposta capturada do background
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.type === 'RESPONSE_FROM_DOM') {
-    if (request.response && request.response !== lastCapturedResponse) {
-      console.log('✅ Nova resposta recebida do DOM!');
-      console.log('Tamanho:', request.response.length);
-      lastCapturedResponse = request.response;
+  switch (message.type) {
+    case 'store-response':
+      // Armazena resposta recebida do background
+      if (message.data && message.data !== lastCapturedResponse) {
+        lastCapturedResponse = message.data;
+        responseTimestamp = Date.now();
+        console.log('💾 Resposta armazenada no offscreen');
+        console.log('Tamanho:', message.data.length);
+        
+        // Notifica o background que temos nova resposta
+        chrome.runtime.sendMessage({
+          type: 'offscreen-has-response',
+          target: 'background',
+          data: {
+            response: lastCapturedResponse,
+            timestamp: responseTimestamp
+          }
+        });
+      }
+      sendResponse({ success: true });
+      break;
       
-      // Notifica o background
-      chrome.runtime.sendMessage({
-        type: 'OFFSCREEN_CAPTURED_RESPONSE',
-        response: request.response,
-        timestamp: Date.now()
-      }).catch(err => console.log('Erro ao notificar:', err));
-    }
-    sendResponse({ success: true });
-    return true;
+    case 'get-response':
+      // Retorna resposta armazenada
+      console.log('📤 Retornando resposta armazenada');
+      sendResponse({
+        success: lastCapturedResponse.length > 10,
+        response: lastCapturedResponse,
+        timestamp: responseTimestamp
+      });
+      break;
+      
+    case 'clear-response':
+      // Limpa resposta armazenada
+      console.log('🗑️ Limpando cache do offscreen');
+      lastCapturedResponse = '';
+      responseTimestamp = 0;
+      sendResponse({ success: true });
+      break;
+      
+    default:
+      console.warn('Tipo de mensagem desconhecido:', message.type);
   }
+  
+  return true; // Mantém canal aberto para sendResponse assíncrono
 });
 
-console.log('✅ Offscreen document pronto');
+console.log('✅ Offscreen document pronto e aguardando mensagens');
