@@ -30,21 +30,20 @@ function startMessageObserver() {
       messages = document.querySelectorAll('[data-message-id]');
     }
     
-    console.log(`🔄 Observer detectou mutação. Mensagens encontradas: ${messages.length}`);
-    
-    // Se o número de mensagens mudou, captura a última
+    // Se o número de mensagens AUMENTOU (nova mensagem chegou)
     if (messages.length > lastMessageCount && messages.length > 0) {
-      console.log(`📈 Contagem mudou de ${lastMessageCount} para ${messages.length}`);
+      console.log(`📈 Contagem mudou de ${lastMessageCount} para ${messages.length} - NOVA MENSAGEM!`);
       lastMessageCount = messages.length;
       
       const lastMessage = messages[messages.length - 1];
       const response = (lastMessage.innerText || lastMessage.textContent || '').trim();
       
-      console.log('📝 Resposta capturada:', response.substring(0, 100) + '...');
+      console.log('📝 Nova resposta capturada:', response.substring(0, 100) + '...');
       
+      // Só armazena se for diferente da última E tiver conteúdo válido
       if (response.length > 10 && response !== lastResponse) {
         lastResponse = response;
-        console.log('✅ Nova resposta detectada pelo observer!');
+        console.log('✅ Nova resposta detectada e ARMAZENADA pelo observer!');
         console.log('Tamanho:', response.length);
         
         // Armazena no storage também
@@ -63,6 +62,8 @@ function startMessageObserver() {
         }).then(() => {
           console.log('📤 Notificação enviada ao background');
         }).catch(err => console.log('❌ Erro ao notificar:', err));
+      } else {
+        console.log('⚠️ Resposta não armazenada (duplicada ou inválida)');
       }
     }
   });
@@ -250,9 +251,35 @@ async function captureGPTResponse(timeout = 30000) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('📨 Content Script recebeu:', request.type);
   
+  if (request.type === 'CLEAR_CACHE') {
+    console.log('🗑️ Limpando cache do content script');
+    lastResponse = '';
+    lastMessageCount = 0; // Reset para forçar detecção de nova mensagem
+    
+    // Limpa o storage também
+    chrome.storage.local.remove(['lastGPTResponse', 'lastGPTResponseTime']).then(() => {
+      console.log('🗑️ Storage limpo pelo content script');
+    });
+    
+    sendResponse({ success: true });
+    return true;
+  }
+  
   if (request.type === 'INJECT_MESSAGE') {
     console.log('📨 Recebido: INJECT_MESSAGE');
     const { message } = request;
+    
+    // LIMPA CACHE ANTES DE ENVIAR
+    lastResponse = '';
+    console.log('🗑️ Cache limpo antes de enviar nova mensagem');
+    
+    // Conta mensagens atuais para saber quando chegar nova
+    let currentMessages = document.querySelectorAll('[data-message-author-role="assistant"]');
+    if (currentMessages.length === 0) {
+      currentMessages = document.querySelectorAll('[role="article"]');
+    }
+    lastMessageCount = currentMessages.length;
+    console.log(`📊 Contagem atual antes de enviar: ${lastMessageCount} mensagens`);
     
     // Responde imediatamente que recebeu
     sendResponse({ success: true, received: true });

@@ -59,6 +59,10 @@ async function handleSendMessage(message, sendResponse) {
     responseTimestamp = 0;
     console.log('🗑️ Cache limpo para nova mensagem');
     
+    // Limpa storage também
+    await chrome.storage.local.remove(['lastGPTResponse', 'lastGPTResponseTime']);
+    console.log('🗑️ Storage limpo');
+    
     const tabs = await chrome.tabs.query({ 
       url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] 
     });
@@ -81,6 +85,13 @@ async function handleSendMessage(message, sendResponse) {
 
     // Aguarda um pouco para garantir que o script foi injetado
     await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Envia comando para limpar o lastResponse no content script também
+    chrome.tabs.sendMessage(chatGPTTabId, {
+      type: 'CLEAR_CACHE'
+    }).catch(err => console.log('Erro ao limpar cache do content:', err));
+    
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     // Envia a mensagem
     chrome.tabs.sendMessage(chatGPTTabId, {
