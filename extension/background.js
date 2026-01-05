@@ -2,40 +2,6 @@
 let chatGPTTabId = null;
 let cachedResponse = null; // Cache da última resposta capturada
 let responseTimestamp = 0;
-let offscreenCreated = false;
-
-// Cria offscreen document se necessário
-async function setupOffscreenDocument() {
-  if (offscreenCreated) {
-    console.log('✅ Offscreen já existe');
-    return;
-  }
-
-  // Verifica se já existe
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT'],
-    documentUrls: [chrome.runtime.getURL('offscreen.html')]
-  });
-
-  if (existingContexts.length > 0) {
-    console.log('✅ Offscreen document já existe');
-    offscreenCreated = true;
-    return;
-  }
-
-  // Cria novo offscreen document
-  try {
-    await chrome.offscreen.createDocument({
-      url: 'offscreen.html',
-      reasons: ['DOM_SCRAPING'],
-      justification: 'Monitor ChatGPT responses in background'
-    });
-    offscreenCreated = true;
-    console.log('✅ Offscreen document criado');
-  } catch (error) {
-    console.error('❌ Erro ao criar offscreen:', error);
-  }
-}
 
 // Listener para comandos (Ctrl+Shift+Y)
 chrome.commands.onCommand.addListener((command) => {
@@ -65,27 +31,16 @@ function openPanel() {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('📨 Background recebeu:', request.type);
   
-  // Recebe notificação do offscreen quando tem nova resposta
-  if (request.type === 'offscreen-has-response' && request.target === 'background') {
-    console.log('✅ Offscreen notificou nova resposta!');
-    cachedResponse = request.data.response;
-    responseTimestamp = request.data.timestamp;
-    return true;
-  }
-  
   // Recebe notificação de resposta capturada pelo content script
   if (request.type === 'RESPONSE_CAPTURED') {
-    console.log('✅ Resposta capturada pelo observer!');
+    console.log('✅ Resposta capturada pelo content script!');
     cachedResponse = request.response;
     responseTimestamp = request.timestamp;
     
-    // Envia pro offscreen armazenar também
-    setupOffscreenDocument().then(() => {
-      chrome.runtime.sendMessage({
-        type: 'store-response',
-        target: 'offscreen',
-        data: request.response
-      }).catch(err => console.log('Offscreen não disponível:', err));
+    // Armazena no storage também
+    chrome.storage.local.set({
+      lastGPTResponse: request.response,
+      lastGPTResponseTime: request.timestamp
     });
     return;
   }
@@ -104,9 +59,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // Envia mensagem para o ChatGPT
 async function handleSendMessage(message, sendResponse) {
   try {
-    // Garante que offscreen existe
-    await setupOffscreenDocument();
-    
     // Limpa cache ao enviar nova mensagem
     cachedResponse = null;
     responseTimestamp = 0;
@@ -115,14 +67,6 @@ async function handleSendMessage(message, sendResponse) {
     // Limpa storage também
     await chrome.storage.local.remove(['lastGPTResponse', 'lastGPTResponseTime']);
     console.log('🗑️ Storage limpo');
-    
-    // Limpa cache do offscreen
-    chrome.runtime.sendMessage({ 
-      type: 'clear-response',
-      target: 'offscreen'
-    }).catch(err => 
-      console.log('Offscreen não disponível:', err)
-    );
     
     const tabs = await chrome.tabs.query({ 
       url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] 
@@ -207,28 +151,6 @@ async function handleGetResponse(sendResponse) {
       console.log('Storage não disponível:', storageErr);
     }
     
-    // Terceiro fallback: tenta offscreen
-    try {
-      await setupOffscreenDocument();
-      const offscreenResponse = await chrome.runtime.sendMessage({
-        type: 'get-response',
-        target: 'offscreen'
-      });
-      
-      if (offscreenResponse && offscreenResponse.success) {
-        const now = Date.now();
-        if ((now - offscreenResponse.timestamp) < 60000) {
-          console.log('✅ Retornando resposta do offscreen');
-          cachedResponse = offscreenResponse.response;
-          responseTimestamp = offscreenResponse.timestamp;
-          sendResponse({ success: true, response: offscreenResponse.response, fromOffscreen: true });
-          return;
-        }
-      }
-    } catch (offscreenErr) {
-      console.log('Offscreen não disponível:', offscreenErr);
-    }
-    
     if (!chatGPTTabId) {
       const tabs = await chrome.tabs.query({ 
         url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] 
@@ -242,67 +164,35 @@ async function handleGetResponse(sendResponse) {
       chatGPTTabId = tabs[0].id;
     }
 
-    console.log('🔍 Executando captura direta no DOM do ChatGPT...');
+    console.log('🔍 Pedindo resposta direto do content script na tab do ChatGPT...');
     
-    // Executa código diretamente na aba para capturar a resposta
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: chatGPTTabId },
-      func: () => {
-        // Esta função roda DIRETO na aba do ChatGPT
-        try {
-          // Tenta múltiplos seletores
-          let messages = document.querySelectorAll('[data-message-author-role="assistant"]');
-          
-          if (messages.length === 0) {
-            messages = document.querySelectorAll('[role="article"]');
-          }
-          
-          if (messages.length === 0) {
-            messages = document.querySelectorAll('[data-message-id]');
-          }
-          
-          console.log('Mensagens encontradas:', messages.length);
-          
-          if (messages.length === 0) {
-            return { success: false, error: 'Nenhuma mensagem encontrada' };
-          }
-          
-          const lastMessage = messages[messages.length - 1];
-          const response = (lastMessage.innerText || lastMessage.textContent || '').trim();
-          
-          console.log('Resposta capturada:', response.substring(0, 100));
-          
-          if (response.length > 10) {
-            return { success: true, response: response };
-          }
-          
-          return { success: false, error: 'Resposta vazia ou muito curta' };
-        } catch (error) {
-          return { success: false, error: error.message };
-        }
+    // Pede diretamente ao content script que já está rodando na tab
+    chrome.tabs.sendMessage(chatGPTTabId, {
+      type: 'GET_GPT_RESPONSE'
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Erro ao pedir resposta:', chrome.runtime.lastError);
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+        return;
       }
-    });
-
-    if (results && results[0] && results[0].result) {
-      const result = results[0].result;
-      console.log('✅ Resultado da execução:', result);
       
-      // Atualiza cache se sucesso
-      if (result.success) {
-        cachedResponse = result.response;
+      if (response && response.success) {
+        console.log('✅ Resposta obtida do content script');
+        cachedResponse = response.response;
         responseTimestamp = Date.now();
         
         // Salva no storage também
         chrome.storage.local.set({
-          lastGPTResponse: result.response,
+          lastGPTResponse: response.response,
           lastGPTResponseTime: Date.now()
         });
+        
+        sendResponse(response);
+      } else {
+        console.log('⚠️ Content script não retornou sucesso');
+        sendResponse(response || { success: false, error: 'Sem resposta' });
       }
-      
-      sendResponse(result);
-    } else {
-      sendResponse({ success: false, error: 'Falha ao executar script' });
-    }
+    });
 
   } catch (error) {
     console.error('Erro em handleGetResponse:', error);

@@ -1,13 +1,12 @@
 {
   "manifest_version": 3,
   "name": "GPT Interceptor",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Intercepta mensagens do ChatGPT em tempo real",
   "permissions": [
     "scripting",
     "tabs",
-    "storage",
-    "offscreen"
+    "storage"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -40,7 +39,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["panel.html", "offscreen.html"],
+      "resources": ["panel.html"],
       "matches": ["<all_urls>"]
     }
   ]

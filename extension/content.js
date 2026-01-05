@@ -306,17 +306,44 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_GPT_RESPONSE') {
     console.log('📨 Recebido: GET_GPT_RESPONSE');
     
-    // Se já temos uma resposta armazenada, retorna ela
+    // Tenta capturar diretamente do DOM AGORA
+    try {
+      let messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+      
+      if (messages.length === 0) {
+        messages = document.querySelectorAll('[role="article"]');
+      }
+      
+      if (messages.length === 0) {
+        messages = document.querySelectorAll('[data-message-id]');
+      }
+      
+      console.log(`📊 Mensagens encontradas: ${messages.length}`);
+      
+      if (messages.length > 0) {
+        const lastMessage = messages[messages.length - 1];
+        const response = (lastMessage.innerText || lastMessage.textContent || '').trim();
+        
+        console.log('📝 Última mensagem capturada:', response.substring(0, 100) + '...');
+        
+        if (response.length > 10) {
+          lastResponse = response;
+          console.log('✅ Resposta capturada diretamente do DOM');
+          sendResponse({ success: true, response: response });
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('❌ Erro ao capturar do DOM:', error);
+    }
+    
+    // Se não conseguiu capturar direto, tenta o cache
     if (lastResponse && lastResponse.length > 10) {
-      console.log('✅ Retornando resposta armazenada');
+      console.log('✅ Retornando resposta do cache');
       sendResponse({ success: true, response: lastResponse });
     } else {
-      // Caso contrário, tenta capturar novamente
-      console.log('⏳ Tentando capturar resposta...');
-      captureGPTResponse(10000).then(result => {
-        console.log('📤 Enviando resultado:', result);
-        sendResponse(result);
-      });
+      console.log('❌ Nenhuma resposta disponível');
+      sendResponse({ success: false, error: 'Nenhuma resposta disponível' });
     }
     
     return true;
