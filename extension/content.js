@@ -7,47 +7,82 @@ let lastMessageCount = 0;
 
 // Inicia observador de mutações no DOM
 function startMessageObserver() {
-  if (messageObserver) return;
+  if (messageObserver) {
+    console.log('⚠️ Observer já está rodando');
+    return;
+  }
   
   console.log('🔍 Iniciando observador de mensagens...');
+  console.log('URL atual:', window.location.href);
   
   const targetNode = document.body;
   const config = { childList: true, subtree: true };
   
   messageObserver = new MutationObserver((mutations) => {
-    // Procura mensagens
-    let messages = document.querySelectorAll('[role="article"]');
+    // Procura mensagens a cada mutação
+    let messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+    
+    if (messages.length === 0) {
+      messages = document.querySelectorAll('[role="article"]');
+    }
     
     if (messages.length === 0) {
       messages = document.querySelectorAll('[data-message-id]');
     }
     
+    console.log(`🔄 Observer detectou mutação. Mensagens encontradas: ${messages.length}`);
+    
     // Se o número de mensagens mudou, captura a última
-    if (messages.length > lastMessageCount) {
+    if (messages.length > lastMessageCount && messages.length > 0) {
+      console.log(`📈 Contagem mudou de ${lastMessageCount} para ${messages.length}`);
       lastMessageCount = messages.length;
+      
       const lastMessage = messages[messages.length - 1];
       const response = (lastMessage.innerText || lastMessage.textContent || '').trim();
+      
+      console.log('📝 Resposta capturada:', response.substring(0, 100) + '...');
       
       if (response.length > 10 && response !== lastResponse) {
         lastResponse = response;
         console.log('✅ Nova resposta detectada pelo observer!');
         console.log('Tamanho:', response.length);
         
+        // Armazena no storage também
+        chrome.storage.local.set({ 
+          lastGPTResponse: response,
+          lastGPTResponseTime: Date.now()
+        }).then(() => {
+          console.log('💾 Resposta salva no storage');
+        });
+        
         // Envia notificação para o background
         chrome.runtime.sendMessage({
           type: 'RESPONSE_CAPTURED',
           response: response,
           timestamp: Date.now()
-        }).catch(err => console.log('Erro ao notificar:', err));
+        }).then(() => {
+          console.log('📤 Notificação enviada ao background');
+        }).catch(err => console.log('❌ Erro ao notificar:', err));
       }
     }
   });
   
   messageObserver.observe(targetNode, config);
-  console.log('✅ Observer ativo');
+  console.log('✅ Observer ativo e monitorando DOM');
+  
+  // Faz uma checagem inicial
+  setTimeout(() => {
+    let messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+    if (messages.length === 0) {
+      messages = document.querySelectorAll('[role="article"]');
+    }
+    console.log(`📊 Checagem inicial: ${messages.length} mensagens no DOM`);
+    lastMessageCount = messages.length;
+  }, 500);
 }
 
 // Inicia o observer quando o script carrega
+console.log('🚀 Content Script iniciando...');
 setTimeout(startMessageObserver, 1000);
 
 // Aguarda o botao aparecer e clica nele

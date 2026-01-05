@@ -105,15 +105,34 @@ async function handleSendMessage(message, sendResponse) {
 // Obtém a resposta do ChatGPT
 async function handleGetResponse(sendResponse) {
   try {
+    console.log('🔍 Tentando obter resposta...');
+    
     // Primeiro, verifica se temos resposta em cache (capturada pelo observer)
     if (cachedResponse && cachedResponse.length > 10) {
       // Cache válido nos últimos 60 segundos
       const now = Date.now();
       if (responseTimestamp > 0 && (now - responseTimestamp) < 60000) {
-        console.log('✅ Retornando resposta do cache (observer)');
+        console.log('✅ Retornando resposta do cache em memória (observer)');
         sendResponse({ success: true, response: cachedResponse, fromCache: true });
         return;
       }
+    }
+    
+    // Tenta ler do storage como segundo fallback
+    try {
+      const stored = await chrome.storage.local.get(['lastGPTResponse', 'lastGPTResponseTime']);
+      if (stored.lastGPTResponse && stored.lastGPTResponseTime) {
+        const now = Date.now();
+        if ((now - stored.lastGPTResponseTime) < 60000) {
+          console.log('✅ Retornando resposta do storage');
+          cachedResponse = stored.lastGPTResponse;
+          responseTimestamp = stored.lastGPTResponseTime;
+          sendResponse({ success: true, response: stored.lastGPTResponse, fromStorage: true });
+          return;
+        }
+      }
+    } catch (storageErr) {
+      console.log('Storage não disponível:', storageErr);
     }
     
     if (!chatGPTTabId) {
@@ -137,11 +156,18 @@ async function handleGetResponse(sendResponse) {
       func: () => {
         // Esta função roda DIRETO na aba do ChatGPT
         try {
-          let messages = document.querySelectorAll('[role="article"]');
+          // Tenta múltiplos seletores
+          let messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+          
+          if (messages.length === 0) {
+            messages = document.querySelectorAll('[role="article"]');
+          }
           
           if (messages.length === 0) {
             messages = document.querySelectorAll('[data-message-id]');
           }
+          
+          console.log('Mensagens encontradas:', messages.length);
           
           if (messages.length === 0) {
             return { success: false, error: 'Nenhuma mensagem encontrada' };
@@ -149,6 +175,8 @@ async function handleGetResponse(sendResponse) {
           
           const lastMessage = messages[messages.length - 1];
           const response = (lastMessage.innerText || lastMessage.textContent || '').trim();
+          
+          console.log('Resposta capturada:', response.substring(0, 100));
           
           if (response.length > 10) {
             return { success: true, response: response };
@@ -169,6 +197,12 @@ async function handleGetResponse(sendResponse) {
       if (result.success) {
         cachedResponse = result.response;
         responseTimestamp = Date.now();
+        
+        // Salva no storage também
+        chrome.storage.local.set({
+          lastGPTResponse: result.response,
+          lastGPTResponseTime: Date.now()
+        });
       }
       
       sendResponse(result);
