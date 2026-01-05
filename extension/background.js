@@ -2,6 +2,40 @@
 let chatGPTTabId = null;
 let cachedResponse = null; // Cache da última resposta capturada
 let responseTimestamp = 0;
+let offscreenCreated = false;
+
+// Cria offscreen document se necessário
+async function setupOffscreenDocument() {
+  if (offscreenCreated) {
+    console.log('✅ Offscreen já existe');
+    return;
+  }
+
+  // Verifica se já existe
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL('offscreen.html')]
+  });
+
+  if (existingContexts.length > 0) {
+    console.log('✅ Offscreen document já existe');
+    offscreenCreated = true;
+    return;
+  }
+
+  // Cria novo offscreen document
+  try {
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['DOM_SCRAPING'],
+      justification: 'Monitor ChatGPT responses in background'
+    });
+    offscreenCreated = true;
+    console.log('✅ Offscreen document criado');
+  } catch (error) {
+    console.error('❌ Erro ao criar offscreen:', error);
+  }
+}
 
 // Listener para comandos (Ctrl+Shift+Y)
 chrome.commands.onCommand.addListener((command) => {
@@ -31,6 +65,49 @@ function openPanel() {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('📨 Background recebeu:', request.type);
   
+  // Recebe notificação de resposta capturada pelo offscreen
+  if (request.type === 'OFFSCREEN_CAPTURED_RESPONSE') {
+    console.log('✅ Resposta capturada pelo offscreen!');
+    cachedResponse = request.response;
+    responseTimestamp = request.timestamp;
+    
+    // Salva no storage
+    chrome.storage.local.set({
+      lastGPTResponse: request.response,
+      lastGPTResponseTime: request.timestamp
+    });
+    return;
+  }
+  
+  // Polling do DOM - offscreen pede pro background executar script
+  if (request.type === 'POLL_CHATGPT_DOM') {
+    if (chatGPTTabId) {
+      chrome.scripting.executeScript({
+        target: { tabId: chatGPTTabId },
+        func: () => {
+          let messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+          if (messages.length === 0) {
+            messages = document.querySelectorAll('[role="article"]');
+          }
+          if (messages.length > 0) {
+            const lastMessage = messages[messages.length - 1];
+            return (lastMessage.innerText || lastMessage.textContent || '').trim();
+          }
+          return '';
+        }
+      }).then(results => {
+        if (results && results[0] && results[0].result) {
+          // Envia resposta de volta pro offscreen
+          chrome.runtime.sendMessage({
+            type: 'RESPONSE_FROM_DOM',
+            response: results[0].result
+          }).catch(err => console.log('Erro ao enviar pro offscreen:', err));
+        }
+      }).catch(err => console.log('Erro ao executar script:', err));
+    }
+    return;
+  }
+  
   // Recebe notificação de resposta capturada pelo content script
   if (request.type === 'RESPONSE_CAPTURED') {
     console.log('✅ Resposta capturada pelo observer!');
@@ -54,6 +131,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // Envia mensagem para o ChatGPT
 async function handleSendMessage(message, sendResponse) {
   try {
+    // Garante que offscreen existe
+    await setupOffscreenDocument();
+    
     // Limpa cache ao enviar nova mensagem
     cachedResponse = null;
     responseTimestamp = 0;
@@ -62,6 +142,11 @@ async function handleSendMessage(message, sendResponse) {
     // Limpa storage também
     await chrome.storage.local.remove(['lastGPTResponse', 'lastGPTResponseTime']);
     console.log('🗑️ Storage limpo');
+    
+    // Limpa cache do offscreen
+    chrome.runtime.sendMessage({ type: 'CLEAR_CACHE' }).catch(err => 
+      console.log('Offscreen não disponível:', err)
+    );
     
     const tabs = await chrome.tabs.query({ 
       url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] 
@@ -74,6 +159,12 @@ async function handleSendMessage(message, sendResponse) {
 
     chatGPTTabId = tabs[0].id;
     console.log('✅ Aba ChatGPT encontrada:', chatGPTTabId);
+    
+    // Inicia monitoramento via offscreen
+    chrome.runtime.sendMessage({ 
+      type: 'START_MONITORING',
+      tabId: chatGPTTabId 
+    }).catch(err => console.log('Offscreen não disponível:', err));
 
     // Injeta o content script
     await chrome.scripting.executeScript({
