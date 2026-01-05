@@ -102,38 +102,53 @@ sendBtn.addEventListener('click', async () => {
       statusDiv.textContent = '✅ Mensagem enviada! Aguardando resposta...';
       statusDiv.classList.remove('error');
       
-      // Aguarda um pouco e depois tenta obter a resposta
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Aguarda mais tempo para o GPT responder
+      let waitTime = 3000;
+      let retries = 0;
+      let responseReceived = false;
       
-      // Tenta obter resposta
-      const getResponse = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({
-          type: 'GET_RESPONSE'
-        }, (response) => {
-          resolve(response);
+      while (!responseReceived && retries < 8) {
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        
+        statusDiv.textContent = `⏳ Processando... (tentativa ${retries + 1})`;
+        
+        // Tenta obter resposta
+        const getResponse = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({
+            type: 'GET_RESPONSE'
+          }, (response) => {
+            resolve(response);
+          });
         });
-      });
 
-      if (getResponse?.success) {
-        responseSection.style.display = 'block';
-        responseDiv.classList.remove('empty');
-        responseDiv.textContent = getResponse.response;
+        if (getResponse?.success && getResponse.response) {
+          responseSection.style.display = 'block';
+          responseDiv.classList.remove('empty');
+          responseDiv.textContent = getResponse.response;
 
-        // Adiciona resposta ao histórico
-        conversationHistory.push({
-          role: 'assistant',
-          content: getResponse.response,
-          timestamp: new Date().toISOString()
-        });
-        saveHistory();
-        updateHistoryDisplay();
+          // Adiciona resposta ao histórico
+          conversationHistory.push({
+            role: 'assistant',
+            content: getResponse.response,
+            timestamp: new Date().toISOString()
+          });
+          saveHistory();
+          updateHistoryDisplay();
 
-        messageInput.value = '';
-        statusDiv.textContent = '✅ Resposta recebida!';
-        statusDiv.classList.remove('error');
-        statusDiv.classList.add('connected');
-      } else {
+          messageInput.value = '';
+          statusDiv.textContent = '✅ Resposta recebida!';
+          statusDiv.classList.remove('error');
+          statusDiv.classList.add('connected');
+          responseReceived = true;
+        } else {
+          retries++;
+          waitTime = 1500; // Reduz espera após primeira tentativa
+        }
+      }
+      
+      if (!responseReceived) {
         statusDiv.textContent = '⏳ Resposta ainda não pronta. Clique "Obter Resposta" para tentar novamente.';
+        statusDiv.classList.remove('error');
       }
     } else {
       statusDiv.textContent = `❌ Erro: ${sendResponse?.error || 'Desconhecido'}`;

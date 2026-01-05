@@ -102,7 +102,7 @@ async function handleGetResponse(sendResponse) {
       chatGPTTabId = tabs[0].id;
     }
 
-    // Injeta o content script
+    // Injeta o content script se necessário
     await chrome.scripting.executeScript({
       target: { tabId: chatGPTTabId },
       files: ['content.js']
@@ -110,21 +110,34 @@ async function handleGetResponse(sendResponse) {
       console.log('Content script já injetado ou erro:', err.message);
     });
 
-    // Aguarda um pouco
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Aguarda mais tempo para garantir que o content script está pronto
+    await new Promise(resolve => setTimeout(resolve, 800));
 
-    // Pede a resposta
-    chrome.tabs.sendMessage(chatGPTTabId, {
-      type: 'GET_GPT_RESPONSE'
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('Erro ao obter resposta:', chrome.runtime.lastError);
-        sendResponse({ success: false, error: chrome.runtime.lastError.message });
-      } else {
-        console.log('✅ Resposta obtida:', response);
-        sendResponse(response);
-      }
+    // Pede a resposta com timeout maior
+    const responsePromise = new Promise((resolve) => {
+      chrome.tabs.sendMessage(chatGPTTabId, {
+        type: 'GET_GPT_RESPONSE',
+        timestamp: Date.now()
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Erro ao obter resposta:', chrome.runtime.lastError);
+          resolve({ success: false, error: chrome.runtime.lastError.message });
+        } else {
+          console.log('✅ Resposta obtida:', response);
+          resolve(response);
+        }
+      });
     });
+
+    // Aguarda resposta com timeout
+    const timeoutPromise = new Promise((resolve) => {
+      setTimeout(() => {
+        resolve({ success: false, error: 'Timeout ao obter resposta. Tente novamente.' });
+      }, 15000);
+    });
+
+    const result = await Promise.race([responsePromise, timeoutPromise]);
+    sendResponse(result);
 
   } catch (error) {
     console.error('Erro em handleGetResponse:', error);

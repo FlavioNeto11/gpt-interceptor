@@ -1,6 +1,7 @@
 // Content Script - GPT Interceptor
 let lastResponse = '';
 let isWaitingForResponse = false;
+let capturedResponses = {}; // Armazena respostas por ID
 
 // Aguarda o botao aparecer e clica nele
 async function waitAndClickSendButton(timeout = 10000) {
@@ -37,7 +38,7 @@ async function waitAndClickSendButton(timeout = 10000) {
         console.error('❌ Timeout aguardando botao aparecer');
         resolve(false);
       }
-    }, 100); // Verifica a cada 100ms
+    }, 100);
   });
 }
 
@@ -110,11 +111,9 @@ async function captureGPTResponse(timeout = 30000) {
   return new Promise((resolve) => {
     const startTime = Date.now();
     let lastMessageContent = '';
-    let checkCount = 0;
+    let messageCount = 0;
     
     const checkInterval = setInterval(() => {
-      checkCount++;
-      
       try {
         // Procura mensagens
         let messages = document.querySelectorAll('[role="article"]');
@@ -124,32 +123,44 @@ async function captureGPTResponse(timeout = 30000) {
         }
         
         if (messages.length > 0) {
+          // A última mensagem deve ser a resposta
           const lastMessage = messages[messages.length - 1];
           const response = (lastMessage.innerText || lastMessage.textContent || '').trim();
           
+          // Verifica se temos uma resposta nova e significante
           if (response.length > 10 && response !== lastMessageContent &&
               !response.toLowerCase().includes('typing')) {
             
-            lastMessageContent = response;
-            clearInterval(checkInterval);
-            console.log('✅ Resposta capturada!');
-            isWaitingForResponse = false;
-            resolve({ success: true, response: response });
-            return;
+            // Se a contagem de mensagens mudou, é uma resposta nova
+            if (messages.length > messageCount) {
+              messageCount = messages.length;
+              lastMessageContent = response;
+              
+              clearInterval(checkInterval);
+              console.log('✅ Resposta capturada com sucesso!');
+              console.log('Tamanho da resposta:', response.length);
+              isWaitingForResponse = false;
+              
+              // Armazena a resposta
+              lastResponse = response;
+              
+              resolve({ success: true, response: response });
+              return;
+            }
           }
         }
         
         // Timeout
         if (Date.now() - startTime > timeout) {
           clearInterval(checkInterval);
-          console.error('⏱️  Timeout');
+          console.error('⏱️  Timeout esperando resposta');
           isWaitingForResponse = false;
-          resolve({ success: false, error: 'Timeout' });
+          resolve({ success: false, error: 'Timeout esperando resposta' });
         }
       } catch (error) {
         console.error('Erro ao capturar:', error.message);
       }
-    }, 1000);
+    }, 500); // Verifica a cada 500ms em vez de 1000ms
   });
 }
 
@@ -164,14 +175,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Responde imediatamente que recebeu
     sendResponse({ success: true, received: true });
     
-    // Processa em background
+    // Processa o envio
     sendMessageToGPT(message).then(success => {
       if (success) {
-        console.log('⏳ Aguardando resposta...');
-        captureGPTResponse(30000).then((result) => {
-          console.log('✅ Resposta capturada');
-          // A resposta será obtida por GET_GPT_RESPONSE
+        console.log('⏳ Aguardando resposta do GPT...');
+        // Captura a resposta assim que enviou
+        captureGPTResponse(45000).then((result) => {
+          console.log('✅ Resultado da captura:', result);
+          if (result.success) {
+            lastResponse = result.response;
+          }
         });
+      } else {
+        console.error('❌ Falha ao enviar mensagem');
       }
     });
     
@@ -180,10 +196,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.type === 'GET_GPT_RESPONSE') {
     console.log('📨 Recebido: GET_GPT_RESPONSE');
-    captureGPTResponse(15000).then(result => {
-      console.log('Enviando resultado:', result);
-      sendResponse(result);
-    });
+    
+    // Se já temos uma resposta armazenada, retorna ela
+    if (lastResponse && lastResponse.length > 10) {
+      console.log('✅ Retornando resposta armazenada');
+      sendResponse({ success: true, response: lastResponse });
+    } else {
+      // Caso contrário, tenta capturar novamente
+      console.log('⏳ Tentando capturar resposta...');
+      captureGPTResponse(10000).then(result => {
+        console.log('📤 Enviando resultado:', result);
+        sendResponse(result);
+      });
+    }
+    
     return true;
   }
 });
