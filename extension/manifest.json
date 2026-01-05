@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "GPT Interceptor",
-  "version": "1.0.0",
-  "description": "Intercepta mensagens do ChatGPT",
+  "version": "1.0.1",
+  "description": "Intercepta mensagens do ChatGPT em tempo real",
   "permissions": [
     "scripting",
     "webRequest",
     "tabs",
-    "activeTab"
+    "activeTab",
+    "storage"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -27,7 +28,21 @@
     }
   ],
   "action": {
-    "default_popup": "popup.html",
     "default_title": "GPT Interceptor"
-  }
+  },
+  "commands": {
+    "open_panel": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Abrir painel GPT Interceptor"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["panel.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

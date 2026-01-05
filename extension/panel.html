@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GPT Interceptor - Painel</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      overflow: hidden;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+    }
+
+    h1 {
+      font-size: 20px;
+      color: white;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .close-btn {
+      background: rgba(255, 255, 255, 0.2);
+      border: none;
+      color: white;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s;
+    }
+
+    .close-btn:hover {
+      background: rgba(255, 255, 255, 0.3);
+      transform: scale(1.1);
+    }
+
+    .container {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .status {
+      padding: 12px 15px;
+      background: #f0f0f0;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #666;
+      border-left: 4px solid #667eea;
+    }
+
+    .status.connected {
+      background: #d4edda;
+      color: #155724;
+      border-left-color: #28a745;
+    }
+
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+      border-left-color: #dc3545;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #667eea;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 80px;
+      padding: 12px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13px;
+      resize: vertical;
+      transition: border-color 0.3s;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .send-btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .send-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .send-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .get-btn {
+      background: #f0f0f0;
+      color: #333;
+      border: 2px solid #ddd;
+    }
+
+    .get-btn:hover:not(:disabled) {
+      background: #e0e0e0;
+    }
+
+    .get-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .response-section {
+      margin-top: 10px;
+      padding-top: 15px;
+      border-top: 2px solid #eee;
+    }
+
+    .response-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #667eea;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      display: block;
+    }
+
+    .response {
+      background: #f9f9f9;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 100px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #333;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .response.empty {
+      color: #999;
+      font-style: italic;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .history {
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 2px solid #eee;
+    }
+
+    .history-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #667eea;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .clear-history {
+      background: none;
+      border: none;
+      color: #dc3545;
+      font-size: 11px;
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+    }
+
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    .history-item {
+      background: #f5f5f5;
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      border-left: 3px solid #667eea;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .history-item:hover {
+      background: #ececec;
+      padding-left: 10px;
+    }
+
+    .history-item.user {
+      border-left-color: #28a745;
+    }
+
+    .history-item.assistant {
+      border-left-color: #007bff;
+    }
+
+    .history-time {
+      font-size: 10px;
+      color: #999;
+      margin-top: 2px;
+    }
+
+    /* Scrollbar customizado */
+    .container::-webkit-scrollbar,
+    .history-list::-webkit-scrollbar,
+    .response::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .container::-webkit-scrollbar-track,
+    .history-list::-webkit-scrollbar-track,
+    .response::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 3px;
+    }
+
+    .container::-webkit-scrollbar-thumb,
+    .history-list::-webkit-scrollbar-thumb,
+    .response::-webkit-scrollbar-thumb {
+      background: #667eea;
+      border-radius: 3px;
+    }
+
+    .container::-webkit-scrollbar-thumb:hover,
+    .history-list::-webkit-scrollbar-thumb:hover,
+    .response::-webkit-scrollbar-thumb:hover {
+      background: #764ba2;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🤖 GPT Interceptor</h1>
+    <button class="close-btn" id="closeBtn" title="Fechar painel">×</button>
+  </div>
+
+  <div class="container">
+    <div class="status" id="status">⏳ Conectando...</div>
+
+    <div class="input-group">
+      <label for="messageInput">Mensagem</label>
+      <textarea id="messageInput" placeholder="Digite sua mensagem para o ChatGPT..."></textarea>
+    </div>
+
+    <div class="buttons">
+      <button class="send-btn" id="sendBtn">Enviar</button>
+      <button class="get-btn" id="getBtn">Obter Resposta</button>
+    </div>
+
+    <div class="response-section" id="responseSection" style="display: none;">
+      <span class="response-label">Última Resposta</span>
+      <div class="response empty" id="response">
+        Nenhuma resposta capturada
+      </div>
+    </div>
+
+    <div class="history">
+      <div class="history-label">
+        Histórico
+        <button class="clear-history" id="clearHistory">Limpar</button>
+      </div>
+      <div class="history-list" id="historyList">
+        <div style="color: #999; font-size: 11px; text-align: center; padding: 20px 0;">
+          Nenhum histórico
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="panel.js"></script>
+</body>
+</html>

@@ -1,9 +1,42 @@
-// Service Worker para gerenciar mensagens entre content script e popup
+// Service Worker - GPT Interceptor
+// Abre o painel quando o usuário clica no ícone
+chrome.action.onClicked.addListener((tab) => {
+  openPanel();
+});
+
+// Abre o painel via comando de teclado
+chrome.commands.onCommand.addListener((command) => {
+  if (command === 'open_panel') {
+    openPanel();
+  }
+});
+
+// Função para abrir o painel como janela
+function openPanel() {
+  const panelUrl = chrome.runtime.getURL('panel.html');
+  
+  // Cria uma janela nova com o painel
+  chrome.windows.create({
+    url: panelUrl,
+    type: 'popup',
+    width: 450,
+    height: 700,
+    top: 100,
+    left: 100
+  }, (window) => {
+    if (chrome.runtime.lastError) {
+      console.error('Erro ao abrir painel:', chrome.runtime.lastError);
+    } else {
+      console.log('✅ Painel aberto com ID:', window.id);
+    }
+  });
+}
+
+// Listener para mensagens
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('📨 Mensagem recebida no Background:', request.type, sender);
+  console.log('📨 Mensagem recebida no Background:', request.type);
   
   if (request.type === 'SEND_MESSAGE_TO_GPT') {
-    // Encontra a aba do ChatGPT e envia a mensagem
     chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] }, (tabs) => {
       if (tabs.length > 0) {
         console.log('✅ Aba do ChatGPT encontrada, enviando mensagem...');
@@ -24,11 +57,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ success: false, error: 'ChatGPT tab not found' });
       }
     });
-    return true; // Para resposta assíncrona
+    return true;
   }
 
   if (request.type === 'GET_RESPONSE') {
-    // Obtém a resposta do ChatGPT
     chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] }, (tabs) => {
       if (tabs.length > 0) {
         console.log('✅ Obtendo resposta do ChatGPT...');
