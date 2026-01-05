@@ -86,6 +86,37 @@ function startMessageObserver() {
 console.log('🚀 Content Script iniciando...');
 setTimeout(startMessageObserver, 1000);
 
+// ===== NOVO: Polling periódico para garantir que sempre temos resposta disponível =====
+setInterval(() => {
+  try {
+    let messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+    
+    if (messages.length === 0) {
+      messages = document.querySelectorAll('[role="article"]');
+    }
+    
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      const currentResponse = (lastMessage.innerText || lastMessage.textContent || '').trim();
+      
+      // Se encontrou algo novo e diferente do cache
+      if (currentResponse.length > 10 && currentResponse !== lastResponse) {
+        lastResponse = currentResponse;
+        
+        // Salva IMEDIATAMENTE no storage
+        chrome.storage.local.set({
+          lastGPTResponse: currentResponse,
+          lastGPTResponseTime: Date.now()
+        });
+        
+        console.log('💾 [POLLING] Nova resposta armazenada no storage:', currentResponse.substring(0, 50) + '...');
+      }
+    }
+  } catch (error) {
+    // Silencioso para não poluir logs
+  }
+}, 1000); // A cada 1 segundo
+
 // Aguarda o botao aparecer e clica nele
 async function waitAndClickSendButton(timeout = 10000) {
   return new Promise((resolve) => {
@@ -305,26 +336,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.type === 'GET_GPT_RESPONSE') {
     console.log('📨 Recebido: GET_GPT_RESPONSE');
+    console.log('📊 document.readyState:', document.readyState);
+    console.log('📊 document.visibilityState:', document.visibilityState);
+    console.log('📊 lastResponse cache:', lastResponse ? `${lastResponse.substring(0, 50)}...` : 'VAZIO');
     
     // Tenta capturar diretamente do DOM AGORA
     try {
       let messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+      console.log('🔍 Tentou selector [data-message-author-role="assistant"]:', messages.length);
       
       if (messages.length === 0) {
         messages = document.querySelectorAll('[role="article"]');
+        console.log('🔍 Tentou selector [role="article"]:', messages.length);
       }
       
       if (messages.length === 0) {
         messages = document.querySelectorAll('[data-message-id]');
+        console.log('🔍 Tentou selector [data-message-id]:', messages.length);
       }
       
-      console.log(`📊 Mensagens encontradas: ${messages.length}`);
+      console.log(`📊 Total de mensagens encontradas: ${messages.length}`);
       
       if (messages.length > 0) {
         const lastMessage = messages[messages.length - 1];
         const response = (lastMessage.innerText || lastMessage.textContent || '').trim();
         
-        console.log('📝 Última mensagem capturada:', response.substring(0, 100) + '...');
+        console.log('📝 Tamanho da última mensagem:', response.length);
+        console.log('📝 Primeiros 100 chars:', response.substring(0, 100) + '...');
         
         if (response.length > 10) {
           lastResponse = response;

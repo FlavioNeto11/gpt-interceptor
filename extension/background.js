@@ -121,7 +121,8 @@ async function handleSendMessage(message, sendResponse) {
 // Obtém a resposta do ChatGPT
 async function handleGetResponse(sendResponse) {
   try {
-    console.log('🔍 Tentando obter resposta...');
+    console.log('🔍 handleGetResponse iniciado');
+    console.log('🔍 chatGPTTabId:', chatGPTTabId);
     
     // Primeiro, verifica se temos resposta em cache (capturada pelo observer)
     if (cachedResponse && cachedResponse.length > 10) {
@@ -148,33 +149,38 @@ async function handleGetResponse(sendResponse) {
         }
       }
     } catch (storageErr) {
-      console.log('Storage não disponível:', storageErr);
+      console.log('⚠️ Storage não disponível:', storageErr);
     }
     
     if (!chatGPTTabId) {
+      console.log('🔍 chatGPTTabId não definido, procurando tabs...');
       const tabs = await chrome.tabs.query({ 
         url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] 
       });
 
       if (tabs.length === 0) {
+        console.error('❌ ChatGPT não está aberto');
         sendResponse({ success: false, error: 'ChatGPT não está aberto' });
         return;
       }
 
       chatGPTTabId = tabs[0].id;
+      console.log('✅ Tab encontrada:', chatGPTTabId);
     }
 
-    console.log('🔍 Pedindo resposta direto do content script na tab do ChatGPT...');
+    console.log('📨 Enviando GET_GPT_RESPONSE para tab:', chatGPTTabId);
     
     // Pede diretamente ao content script que já está rodando na tab
     chrome.tabs.sendMessage(chatGPTTabId, {
       type: 'GET_GPT_RESPONSE'
     }, (response) => {
       if (chrome.runtime.lastError) {
-        console.error('Erro ao pedir resposta:', chrome.runtime.lastError);
+        console.error('❌ Erro chrome.runtime.lastError:', chrome.runtime.lastError.message);
         sendResponse({ success: false, error: chrome.runtime.lastError.message });
         return;
       }
+      
+      console.log('📬 Resposta do content script:', response);
       
       if (response && response.success) {
         console.log('✅ Resposta obtida do content script');
@@ -189,13 +195,13 @@ async function handleGetResponse(sendResponse) {
         
         sendResponse(response);
       } else {
-        console.log('⚠️ Content script não retornou sucesso');
+        console.log('⚠️ Content script retornou erro ou sem sucesso:', response);
         sendResponse(response || { success: false, error: 'Sem resposta' });
       }
     });
 
   } catch (error) {
-    console.error('Erro em handleGetResponse:', error);
+    console.error('❌ Erro em handleGetResponse:', error);
     sendResponse({ success: false, error: error.message });
   }
 }
