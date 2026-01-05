@@ -1,4 +1,29 @@
 // Service Worker - GPT Interceptor
+let offscreenTabId = null;
+
+// Cria/mantém o offscreen document na aba do ChatGPT
+async function ensureOffscreenDocument() {
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT']
+  });
+  
+  if (existingContexts.length > 0) {
+    console.log('✅ Offscreen document já existe');
+    return existingContexts[0];
+  }
+  
+  try {
+    await chrome.offscreen.createDocument({
+      url: chrome.runtime.getURL('offscreen.html'),
+      reasons: ['TESTING'],
+      justification: 'Needed to inject and capture ChatGPT messages'
+    });
+    console.log('✅ Offscreen document criado');
+  } catch (error) {
+    console.error('Erro ao criar offscreen document:', error);
+  }
+}
+
 // Abre o painel quando o usuário clica no ícone
 chrome.action.onClicked.addListener((tab) => {
   openPanel();
@@ -15,7 +40,6 @@ chrome.commands.onCommand.addListener((command) => {
 function openPanel() {
   const panelUrl = chrome.runtime.getURL('panel.html');
   
-  // Cria uma janela nova com o painel
   chrome.windows.create({
     url: panelUrl,
     type: 'popup',
@@ -40,13 +64,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] }, (tabs) => {
       if (tabs.length > 0) {
         console.log('✅ Aba do ChatGPT encontrada, enviando mensagem...');
-        chrome.tabs.sendMessage(tabs[0].id, {
+        const chatGPTTabId = tabs[0].id;
+        offscreenTabId = chatGPTTabId;
+        
+        // Tenta injetar via content script primeiro
+        chrome.tabs.sendMessage(chatGPTTabId, {
           type: 'INJECT_MESSAGE',
           message: request.message
         }, (response) => {
           if (chrome.runtime.lastError) {
-            console.error('Erro ao enviar:', chrome.runtime.lastError);
-            sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            console.log('Content script falhou, tentando offscreen...');
+            sendResponse({ success: false, error: 'Precisa estar na aba do ChatGPT' });
           } else {
             console.log('✅ Resposta recebida:', response);
             sendResponse(response);

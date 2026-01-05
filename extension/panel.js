@@ -74,7 +74,7 @@ sendBtn.addEventListener('click', async () => {
   }
 
   sendBtn.disabled = true;
-  statusDiv.textContent = '📨 Injetando mensagem no ChatGPT...';
+  statusDiv.textContent = '📨 Enviando para ChatGPT...';
   statusDiv.classList.remove('error');
   responseSection.style.display = 'none';
 
@@ -86,54 +86,44 @@ sendBtn.addEventListener('click', async () => {
   });
 
   try {
-    chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] }, (tabs) => {
-      if (tabs.length === 0) {
-        statusDiv.textContent = '❌ ChatGPT não encontrado em nenhuma aba';
+    // Envia para o background que gerencia tudo
+    chrome.runtime.sendMessage({
+      type: 'SEND_MESSAGE_TO_GPT',
+      message: message
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        statusDiv.textContent = '❌ ' + chrome.runtime.lastError.message;
         statusDiv.classList.add('error');
         sendBtn.disabled = false;
         return;
       }
 
-      const tabId = tabs[0].id;
-      chrome.tabs.sendMessage(tabId, {
-        type: 'INJECT_MESSAGE',
-        message: message
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('Erro ao enviar mensagem:', chrome.runtime.lastError);
-          statusDiv.textContent = '❌ ' + chrome.runtime.lastError.message;
-          statusDiv.classList.add('error');
-          sendBtn.disabled = false;
-          return;
-        }
+      if (response?.success) {
+        statusDiv.textContent = '✅ Resposta recebida do GPT!';
+        statusDiv.classList.remove('error');
+        statusDiv.classList.add('connected');
 
-        if (response?.success) {
-          statusDiv.textContent = '✅ Resposta recebida do GPT!';
-          statusDiv.classList.remove('error');
-          statusDiv.classList.add('connected');
+        // Adiciona resposta ao histórico
+        conversationHistory.push({
+          role: 'assistant',
+          content: response.response,
+          timestamp: new Date().toISOString()
+        });
+        saveHistory();
+        updateHistoryDisplay();
 
-          // Adiciona resposta ao histórico
-          conversationHistory.push({
-            role: 'assistant',
-            content: response.response,
-            timestamp: new Date().toISOString()
-          });
-          saveHistory();
-          updateHistoryDisplay();
-
-          messageInput.value = '';
-          
-          // Exibe a resposta
-          responseSection.style.display = 'block';
-          responseDiv.classList.remove('empty');
-          responseDiv.textContent = response.response;
-        } else {
-          statusDiv.textContent = `❌ Erro: ${response?.error || 'Desconhecido'}`;
-          statusDiv.classList.add('error');
-        }
+        messageInput.value = '';
         
-        sendBtn.disabled = false;
-      });
+        // Exibe a resposta
+        responseSection.style.display = 'block';
+        responseDiv.classList.remove('empty');
+        responseDiv.textContent = response.response;
+      } else {
+        statusDiv.textContent = `❌ Erro: ${response?.error || 'Desconhecido'}`;
+        statusDiv.classList.add('error');
+      }
+      
+      sendBtn.disabled = false;
     });
 
   } catch (error) {
@@ -150,16 +140,9 @@ getBtn.addEventListener('click', async () => {
   statusDiv.textContent = '⏳ Obtendo resposta do ChatGPT...';
   responseSection.style.display = 'none';
 
-  chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] }, (tabs) => {
-    if (tabs.length === 0) {
-      statusDiv.textContent = '❌ ChatGPT não encontrado em nenhuma aba';
-      statusDiv.classList.add('error');
-      getBtn.disabled = false;
-      return;
-    }
-
-    chrome.tabs.sendMessage(tabs[0].id, {
-      type: 'GET_GPT_RESPONSE'
+  try {
+    chrome.runtime.sendMessage({
+      type: 'GET_RESPONSE'
     }, (response) => {
       if (chrome.runtime.lastError) {
         console.error('Erro:', chrome.runtime.lastError);
@@ -195,7 +178,12 @@ getBtn.addEventListener('click', async () => {
       
       getBtn.disabled = false;
     });
-  });
+  } catch (error) {
+    console.error('Erro:', error);
+    statusDiv.textContent = '❌ Erro: ' + error.message;
+    statusDiv.classList.add('error');
+    getBtn.disabled = false;
+  }
 });
 
 // Limpa histórico

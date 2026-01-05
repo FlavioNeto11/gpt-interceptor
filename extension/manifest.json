@@ -8,7 +8,8 @@
     "webRequest",
     "tabs",
     "activeTab",
-    "storage"
+    "storage",
+    "offscreen"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -41,7 +42,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["panel.html"],
+      "resources": ["panel.html", "offscreen.html"],
       "matches": ["<all_urls>"]
     }
   ]
