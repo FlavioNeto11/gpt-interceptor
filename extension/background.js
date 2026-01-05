@@ -102,42 +102,45 @@ async function handleGetResponse(sendResponse) {
       chatGPTTabId = tabs[0].id;
     }
 
-    // Injeta o content script se necessário
-    await chrome.scripting.executeScript({
+    console.log('🔍 Executando captura direta no DOM do ChatGPT...');
+    
+    // Executa código diretamente na aba para capturar a resposta
+    const results = await chrome.scripting.executeScript({
       target: { tabId: chatGPTTabId },
-      files: ['content.js']
-    }).catch(err => {
-      console.log('Content script já injetado ou erro:', err.message);
-    });
-
-    // Aguarda mais tempo para garantir que o content script está pronto
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    // Pede a resposta com timeout maior
-    const responsePromise = new Promise((resolve) => {
-      chrome.tabs.sendMessage(chatGPTTabId, {
-        type: 'GET_GPT_RESPONSE',
-        timestamp: Date.now()
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('Erro ao obter resposta:', chrome.runtime.lastError);
-          resolve({ success: false, error: chrome.runtime.lastError.message });
-        } else {
-          console.log('✅ Resposta obtida:', response);
-          resolve(response);
+      func: () => {
+        // Esta função roda DIRETO na aba do ChatGPT
+        try {
+          let messages = document.querySelectorAll('[role="article"]');
+          
+          if (messages.length === 0) {
+            messages = document.querySelectorAll('[data-message-id]');
+          }
+          
+          if (messages.length === 0) {
+            return { success: false, error: 'Nenhuma mensagem encontrada' };
+          }
+          
+          const lastMessage = messages[messages.length - 1];
+          const response = (lastMessage.innerText || lastMessage.textContent || '').trim();
+          
+          if (response.length > 10) {
+            return { success: true, response: response };
+          }
+          
+          return { success: false, error: 'Resposta vazia ou muito curta' };
+        } catch (error) {
+          return { success: false, error: error.message };
         }
-      });
+      }
     });
 
-    // Aguarda resposta com timeout
-    const timeoutPromise = new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({ success: false, error: 'Timeout ao obter resposta. Tente novamente.' });
-      }, 15000);
-    });
-
-    const result = await Promise.race([responsePromise, timeoutPromise]);
-    sendResponse(result);
+    if (results && results[0] && results[0].result) {
+      const result = results[0].result;
+      console.log('✅ Resultado da execução:', result);
+      sendResponse(result);
+    } else {
+      sendResponse({ success: false, error: 'Falha ao executar script' });
+    }
 
   } catch (error) {
     console.error('Erro em handleGetResponse:', error);
