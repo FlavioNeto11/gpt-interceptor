@@ -2,6 +2,53 @@
 let lastResponse = '';
 let isWaitingForResponse = false;
 let capturedResponses = {}; // Armazena respostas por ID
+let messageObserver = null;
+let lastMessageCount = 0;
+
+// Inicia observador de mutações no DOM
+function startMessageObserver() {
+  if (messageObserver) return;
+  
+  console.log('🔍 Iniciando observador de mensagens...');
+  
+  const targetNode = document.body;
+  const config = { childList: true, subtree: true };
+  
+  messageObserver = new MutationObserver((mutations) => {
+    // Procura mensagens
+    let messages = document.querySelectorAll('[role="article"]');
+    
+    if (messages.length === 0) {
+      messages = document.querySelectorAll('[data-message-id]');
+    }
+    
+    // Se o número de mensagens mudou, captura a última
+    if (messages.length > lastMessageCount) {
+      lastMessageCount = messages.length;
+      const lastMessage = messages[messages.length - 1];
+      const response = (lastMessage.innerText || lastMessage.textContent || '').trim();
+      
+      if (response.length > 10 && response !== lastResponse) {
+        lastResponse = response;
+        console.log('✅ Nova resposta detectada pelo observer!');
+        console.log('Tamanho:', response.length);
+        
+        // Envia notificação para o background
+        chrome.runtime.sendMessage({
+          type: 'RESPONSE_CAPTURED',
+          response: response,
+          timestamp: Date.now()
+        }).catch(err => console.log('Erro ao notificar:', err));
+      }
+    }
+  });
+  
+  messageObserver.observe(targetNode, config);
+  console.log('✅ Observer ativo');
+}
+
+// Inicia o observer quando o script carrega
+setTimeout(startMessageObserver, 1000);
 
 // Aguarda o botao aparecer e clica nele
 async function waitAndClickSendButton(timeout = 10000) {

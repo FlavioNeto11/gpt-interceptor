@@ -1,5 +1,7 @@
 // Background Service Worker - GPT Interceptor
 let chatGPTTabId = null;
+let cachedResponse = null; // Cache da última resposta capturada
+let responseTimestamp = 0;
 
 // Listener para comandos (Ctrl+Shift+Y)
 chrome.commands.onCommand.addListener((command) => {
@@ -29,6 +31,15 @@ function openPanel() {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('📨 Background recebeu:', request.type);
   
+  // Recebe notificação de resposta capturada pelo content script
+  if (request.type === 'RESPONSE_CAPTURED') {
+    console.log('✅ Resposta capturada pelo observer!');
+    cachedResponse = request.response;
+    responseTimestamp = request.timestamp;
+    // Não precisa sendResponse aqui, é apenas notificação
+    return;
+  }
+  
   if (request.type === 'SEND_MESSAGE_TO_GPT') {
     handleSendMessage(request.message, sendResponse);
     return true;
@@ -43,6 +54,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // Envia mensagem para o ChatGPT
 async function handleSendMessage(message, sendResponse) {
   try {
+    // Limpa cache ao enviar nova mensagem
+    cachedResponse = null;
+    responseTimestamp = 0;
+    console.log('🗑️ Cache limpo para nova mensagem');
+    
     const tabs = await chrome.tabs.query({ 
       url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] 
     });
@@ -89,6 +105,17 @@ async function handleSendMessage(message, sendResponse) {
 // Obtém a resposta do ChatGPT
 async function handleGetResponse(sendResponse) {
   try {
+    // Primeiro, verifica se temos resposta em cache (capturada pelo observer)
+    if (cachedResponse && cachedResponse.length > 10) {
+      // Cache válido nos últimos 60 segundos
+      const now = Date.now();
+      if (responseTimestamp > 0 && (now - responseTimestamp) < 60000) {
+        console.log('✅ Retornando resposta do cache (observer)');
+        sendResponse({ success: true, response: cachedResponse, fromCache: true });
+        return;
+      }
+    }
+    
     if (!chatGPTTabId) {
       const tabs = await chrome.tabs.query({ 
         url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] 
@@ -137,6 +164,13 @@ async function handleGetResponse(sendResponse) {
     if (results && results[0] && results[0].result) {
       const result = results[0].result;
       console.log('✅ Resultado da execução:', result);
+      
+      // Atualiza cache se sucesso
+      if (result.success) {
+        cachedResponse = result.response;
+        responseTimestamp = Date.now();
+      }
+      
       sendResponse(result);
     } else {
       sendResponse({ success: false, error: 'Falha ao executar script' });
