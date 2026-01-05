@@ -5,11 +5,8 @@
   "description": "Intercepta mensagens do ChatGPT em tempo real",
   "permissions": [
     "scripting",
-    "webRequest",
     "tabs",
-    "activeTab",
-    "storage",
-    "offscreen"
+    "storage"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -42,7 +39,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["panel.html", "offscreen.html"],
+      "resources": ["panel.html"],
       "matches": ["<all_urls>"]
     }
   ]
