@@ -2,6 +2,7 @@
 const messageInput = document.getElementById('messageInput');
 const sendBtn = document.getElementById('sendBtn');
 const getBtn = document.getElementById('getBtn');
+const debugBtn = document.getElementById('debugBtn');
 const statusDiv = document.getElementById('status');
 const responseDiv = document.getElementById('response');
 const responseSection = document.getElementById('responseSection');
@@ -215,6 +216,28 @@ getBtn.addEventListener('click', async () => {
     statusDiv.classList.add('error');
     getBtn.disabled = false;
   }
+});
+
+// Debug button - mostra o storage
+debugBtn.addEventListener('click', async () => {
+  const storage = await chrome.storage.local.get(null);
+  console.log('📦 Storage completo:', storage);
+  
+  responseSection.style.display = 'block';
+  responseDiv.classList.remove('empty');
+  
+  let debugInfo = '🔍 DEBUG INFO:\n\n';
+  debugInfo += `lastGPTResponse: ${storage.lastGPTResponse ? 'SIM ✅' : 'NÃO ❌'}\n`;
+  debugInfo += `lastGPTResponseTime: ${storage.lastGPTResponseTime ? new Date(storage.lastGPTResponseTime).toLocaleString() : 'N/A'}\n\n`;
+  
+  if (storage.lastGPTResponse) {
+    debugInfo += `Tamanho: ${storage.lastGPTResponse.length} caracteres\n\n`;
+    debugInfo += `Primeiros 200 chars:\n${storage.lastGPTResponse.substring(0, 200)}...\n`;
+  }
+  
+  responseDiv.textContent = debugInfo;
+  statusDiv.textContent = '🔍 Debug info carregado';
+  statusDiv.classList.remove('error');
 });
 
 // Limpa histórico
